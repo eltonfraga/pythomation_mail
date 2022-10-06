@@ -1,70 +1,67 @@
-import sys
+import argparse,json
 import os
 import pandas as pd
 import mysql.connector
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
 import settings as se
-import queries
-#import csv
+from MyMailer import MyMailer
 
-#external = sys.argv[1]
-#query = queries.QUERY["query_2"] + external
+parser = argparse.ArgumentParser()
+
+parser.add_argument("-q", "--query", help="define wich query will run")
+parser.add_argument("-db", "--database", help="define wich database server use")
+parser.add_argument("-mg", "--mailgroup", help="define list of mail to send")
+
+args = parser.parse_args()
+
+queryArg = args.query if args.query else 'default'
+queryFile = open(f'./queries/{queryArg}.sql','r')
+query = queryFile.read()
+queryFile.close()
+
+dbArg = args.database if args.database else 'default'
+dbJson = open(f'./dbs/{dbArg}.json')
+db=json.load(dbJson)
+dbJson.close()
+
+mailgroupArg = args.mailgroup if args.mailgroup else 'default'
+mailGroupFile = open(f'./mail_list/{mailgroupArg}.txt','r')
+mailGroup = mailGroupFile.read().replace('\n', ' ')
+mailGroupFile.close()
+
 
 #### BEGIN CONNECTING WITH DATABASE AND FETCHING DATA FROM QUERY
-conn = mysql.connector.connect(**se.MYSQL)
-query = queries.QUERY["query_1"]
-cursor = conn.cursor()
-cursor.execute(query)
-queryResult = cursor.fetchall()
+try:
+    conn = mysql.connector.connect(**db)
+    cursor = conn.cursor()
+    cursor.execute(query)
+    queryResult = cursor.fetchall()
+except:
+    print('Check your database instance and/or your config file.')    
 #### END CONNECTING WITH DATABASE AND FETCHING DATA FROM QUERY
 
-#### BEGIN EXPORTING .csv FILE
-#columnNamesCSV = [(desc[0] for desc in cursor.description)]
-#outputCSV = open('./file_to_send.csv','w')
-#fileHandler = csv.writer(outputCSV,delimiter=';')
-#fileHandler.writerows(columnNamesCSV)
-#fileHandler.writerows(queryResult)
-#outputCSV.close()
-#### END EXPORTING .csv FILE
-
 #### BEGIN EXPORTING .xlsx FILE
-columnNamesXLSX = [desc[0] for desc in cursor.description]
-outputXLSX = pd.DataFrame(list(queryResult),columns=columnNamesXLSX)
-writerXLSX = pd.ExcelWriter(se.FILE_NAME_XLSX)
-outputXLSX.to_excel(writerXLSX,sheet_name=se.SHEET_NAME_XLSX)
-writerXLSX.save()
-writerXLSX.close()
+#os.remove(se.FILE_NAME_XLSX)
+try:
+    columnNamesXLSX = [desc[0] for desc in cursor.description]
+    outputXLSX = pd.DataFrame(list(queryResult),columns=columnNamesXLSX)
+    writerXLSX = pd.ExcelWriter(se.FILE_NAME_XLSX)
+    outputXLSX.to_excel(writerXLSX,sheet_name=se.SHEET_NAME_XLSX)
+    writerXLSX.close()
+except:
+    print('File couldn\'t be opened or writed.' )    
 #### BEGIN EXPORTING .xlsx FILE
 
 cursor.close()
 conn.close()
 
 #### BEGIN MAILER
-mail = MIMEMultipart()
-mail['From'] = se.MAIL['from']
-mail['To'] = se.MAIL['to']
-mail['Subject'] = se.MAIL['subject']
-mail.attach(MIMEText(se.MAIL['msg'], 'plain'))
-
-attachment = open(se.FILE_NAME_XLSX,'rb')
-
-part = MIMEBase('application', 'octet-stream')
-part.set_payload((attachment).read())
-encoders.encode_base64(part)
-part.add_header('Content-Disposition', "attachment; filename= %s" % se.FILE_NAME_XLSX)
-
-mail.attach(part)
-
-attachment.close()
-mailer = smtplib.SMTP(se.MAIL['smtpServer'],587)
-mailer.starttls()
-mailer.login(se.MAIL['from'],se.MAIL['pass'])
-mailer.sendmail(se.MAIL['from'],se.MAIL['to'],mail.as_string())
-mailer.quit()
+try:
+    myMailer = MyMailer(se.MAIL)
+    myMailer.attachFile(se.FILE_NAME_XLSX)
+    myMailer.sendMail(se.MAIL['smtpServer'],se.MAIL['port'],se.MAIL['pass'],mailGroup)
+except:
+    print('Error when try to send mail.')    
 #### END MAILER
 
+#### CLEANING FILE
 os.remove(se.FILE_NAME_XLSX)

@@ -1,0 +1,7 @@
+{
+    "user":"python",
+    "password":"python@123A",
+    "host":"localhost",
+    "database":"pythest",
+    "use_pure":"False"
+}
